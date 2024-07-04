@@ -1,66 +1,57 @@
-import altair as alt
-import pandas as pd
 import streamlit as st
-
-# Show the page title and description.
-st.set_page_config(page_title="Movies dataset", page_icon="🎬")
-st.title("🎬 Movies dataset")
-st.write(
-    """
-    This app visualizes data from [The Movie Database (TMDB)](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata).
-    It shows which movie genre performed best at the box office over the years. Just 
-    click on the widgets below to explore!
-    """
-)
+import pandas as pd
+import numpy as np
+import altair as alt
+import difflib #To get the most closest match of movie given by the user
+from sklearn.feature_extraction.text import TfidfVectorizer #Convert text data into numeric data
+from sklearn.metrics.pairwise import cosine_similarity
 
 
-# Load the data from a CSV. We're caching this so it doesn't reload every time the app
-# reruns (e.g. if the user interacts with the widgets).
-@st.cache_data
+st.set_page_config(page_title = "Movie_Recommendation", page_icon = ":Movie:", layout = "centered", )
+st.title("🎬 Movie Recommendation System")
+st.header("Movie marathon alert! 10 picks based on your last watch")
+
+#Loading Dataset
+#Caching the dataset, so that whenever the page reruns, the data won't be loaded again and again
+@st.cache_data 
 def load_data():
-    df = pd.read_csv("data/movies_genres_summary.csv")
+    df = pd.read_csv("movies.csv")
     return df
-
-
 df = load_data()
 
-# Show a multiselect widget with the genres using `st.multiselect`.
-genres = st.multiselect(
-    "Genres",
-    df.genre.unique(),
-    ["Action", "Adventure", "Biography", "Comedy", "Drama", "Horror"],
-)
+#Taking Input(Movie) from user
+movies_list = df['title'].unique().tolist()
+movie_name  = st.selectbox("Enter you last watched movie...", movies_list)
 
-# Show a slider widget with the years using `st.slider`.
-years = st.slider("Years", 1986, 2006, (2000, 2016))
+#replacing the null values with null string
+selected_features = ['genres','keywords','tagline','cast','director']
+for feature in selected_features:
+  df[feature] = df[feature].fillna('')
 
-# Filter the dataframe based on the widget input and reshape it.
-df_filtered = df[(df["genre"].isin(genres)) & (df["year"].between(years[0], years[1]))]
-df_reshaped = df_filtered.pivot_table(
-    index="year", columns="genre", values="gross", aggfunc="sum", fill_value=0
-)
-df_reshaped = df_reshaped.sort_values(by="year", ascending=False)
+#combining all the 5 selected features
+combined_features =df['genres']+' '+ df['keywords']+ ' '+ df['tagline']+' '+ df['cast']+' '+ df['director']
 
+#converting the text data to numeric data
+vectorizer = TfidfVectorizer()
+feature_vector = vectorizer.fit_transform(combined_features)
 
-# Display the data as a table using `st.dataframe`.
-st.dataframe(
-    df_reshaped,
-    use_container_width=True,
-    column_config={"year": st.column_config.TextColumn("Year")},
-)
+similarity = cosine_similarity(feature_vector)
 
-# Display the data as an Altair chart using `st.altair_chart`.
-df_chart = pd.melt(
-    df_reshaped.reset_index(), id_vars="year", var_name="genre", value_name="gross"
-)
-chart = (
-    alt.Chart(df_chart)
-    .mark_line()
-    .encode(
-        x=alt.X("year:N", title="Year"),
-        y=alt.Y("gross:Q", title="Gross earnings ($)"),
-        color="genre:N",
-    )
-    .properties(height=320)
-)
-st.altair_chart(chart, use_container_width=True)
+#Finding the index of the movie based on the title 'x'
+index = df[df.title == movie_name]['index'].values[0]
+
+#Printing similar movies based on similarity score
+sim = list(enumerate(similarity[index]))
+
+#Sorting the movies based on there similarity socre
+sort = sorted(sim, key = lambda x:x[1], reverse = True)
+
+#Printing the movies similar to the movies entered by the user
+st.write("SUGGESTED MOVIES ARE:")
+i = 1
+for movie in sort:
+  index = movie[0]
+  title  = df[df.index == index]['title'].values[0]
+  if(i<11):
+    st.write(i,". ",title)
+    i = i+1
